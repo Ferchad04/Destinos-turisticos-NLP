@@ -1,0 +1,25 @@
+# Entorno virtual
+venv/
+env/
+
+# Cache de Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Variables de entorno / secretos
+.env
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+
+# Archivos temporales
+*.log
+*.tmp
+
+# VSCode
+.vscode/
+
+# Sistema operativo
+.DS_Store
+Thumbs.db
