@@ -1,7 +1,7 @@
 # Entorno virtual
 venv/
 env/
-
+.venv/
 # Cache de Python
 __pycache__/
 *.pyc
@@ -24,3 +24,4 @@ __pycache__/
 .DS_Store
 Thumbs.db
 
+data
