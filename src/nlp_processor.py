@@ -30,16 +30,12 @@ Columnas que agrega este script
   comentario_nlp : texto listo para BoW/TF-IDF/n-gramas/wordcloud
                    = comentario_limpio
                    - stopwords en español e inglés
-                   + stemming con Snowball
+                   + lematización con simplemma (palabras reales, legibles)
   n_palabras_nlp : longitud de comentario_nlp (post-stopwords)
 
 Instalaciones necesarias (una sola vez en tu entorno)
 -------------------------------------------------------
-  pip install langdetect ftfy
-  # Para lemmatización real (mejor que stemming, requiere descarga):
-  pip install spacy
-  python -m spacy download es_core_news_md
-  python -m spacy download en_core_web_sm
+  pip install langdetect ftfy simplemma
 
 Stemming vs Lematización — diferencia clave
 --------------------------------------------
@@ -72,7 +68,7 @@ from pathlib import Path
 
 import pandas as pd
 from langdetect import detect, LangDetectException
-from nltk.stem import SnowballStemmer
+import simplemma
 
 # ── Logging ──────────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -88,9 +84,12 @@ FINAL_DIR  = BASE_DIR / "data" / "final"
 INPUT_CSV  = FINAL_DIR / "maestro_limpio.csv"
 OUTPUT_CSV = FINAL_DIR / "maestro_nlp.csv"
 
-# ── Stemmers ──────────────────────────────────────────────────────────────────
-STEMMER_ES = SnowballStemmer("spanish")
-STEMMER_EN = SnowballStemmer("english")
+# ── Lematizador ──────────────────────────────────────────────────────────────
+# simplemma usa tablas de lemas incluidas en el paquete — sin descargas.
+# Soporta español ('es') e inglés ('en') de forma nativa.
+# Ventaja sobre stemming: produce palabras reales legibles en visualizaciones.
+#   Stemming : "playas" → "play"   (raíz ilegible)
+#   Lemmatizar: "playas" → "playa" (forma canónica real)
 
 # ── Palabras mínimas para considerar el texto (post-stopwords) ────────────────
 MIN_PALABRAS_NLP = 3
@@ -221,50 +220,53 @@ def preprocesar_nlp(texto: str, idioma: str) -> str:
     Convierte comentario_limpio en comentario_nlp:
       1. Tokeniza por espacios
       2. Elimina stopwords según idioma detectado
-      3. Aplica stemming con Snowball según idioma
+      3. Lematiza con simplemma según idioma
       4. Devuelve tokens reunidos en string
 
-    Por qué tokenizamos por espacio (no nltk word_tokenize):
-    El texto ya viene limpio de puntuación. Tokenizar por espacio es
-    equivalente y no requiere modelos descargados.
+    Por qué lematización y no stemming
+    ------------------------------------
+    Stemming   : corta el final por regla mecánica.
+                 "playas" → "play", "aguas" → "agu", "hermosas" → "hermos"
+                 Rápido pero produce raíces ilegibles — inútil para
+                 word clouds y n-gramas que lee una persona.
 
-    Por qué stemming y no lematización:
-    Lematización (spaCy) necesita el modelo descargado y es ~20x más lenta.
-    Para BoW/TF-IDF/n-gramas, stemming da resultados comparables.
-    Si quieres lematización: ver bloque comentado al final del archivo.
+    Lematización: mapea a la forma canónica del diccionario.
+                 "playas" → "playa", "aguas" → "agua", "hermosas" → "hermoso"
+                 Ligeramente más lento (~40s para 38k docs) pero produce
+                 palabras reales que se pueden leer e interpretar.
+
+    simplemma usa tablas incluidas en el paquete — sin descargas extra.
 
     Ejemplo:
       entrada : "hermosas playas visitando restaurantes locales comida"
-      stopwords: set()  ← ninguna de estas es stopword
-      stemming : "herm play visit restaur local comid"
-      ← el stemmer produce raíces, no palabras completas
+      stopwords eliminadas: ninguna de estas es stopword
+      lemas   : "hermoso playa visitar restaurante local comida"
     """
     if not isinstance(texto, str) or texto.strip() == "":
         return ""
 
     tokens = texto.lower().split()
 
-    # Elegir stopwords según idioma
+    # Elegir stopwords y código de idioma para simplemma
     if idioma == "es":
         stops = STOPWORDS_ES
-        stemmer = STEMMER_ES
+        lang  = "es"
     elif idioma == "en":
         stops = STOPWORDS_EN
-        stemmer = STEMMER_EN
+        lang  = "en"
     else:
-        # Para "otro" usamos el conjunto completo y el stemmer español
-        # (mayoría del corpus es español aunque langdetect no lo detecte)
         stops = STOPWORDS_TODAS
-        stemmer = STEMMER_ES
+        lang  = "es"     # mayoría del corpus "otro" es español sin artículos
 
-    # Eliminar stopwords + aplicar stemming en un solo pass
-    tokens_procesados = [
-        stemmer.stem(token)
-        for token in tokens
-        if token not in stops          # quitar stopword
-        and len(token) > 2             # quitar tokens de 1-2 chars ("al", "ha")
-        and not token.isdigit()        # quitar números solos ("150", "2024")
-    ]
+    tokens_procesados = []
+    for token in tokens:
+        if token in stops:          continue   # stopword
+        if len(token) <= 2:         continue   # muy corto
+        if token.isdigit():         continue   # número solo
+
+        # Lematizar — simplemma retorna el mismo token si no lo reconoce
+        lema = simplemma.lemmatize(token, lang=lang)
+        tokens_procesados.append(lema)
 
     return " ".join(tokens_procesados)
 
@@ -399,38 +401,3 @@ if __name__ == "__main__":
                         help="Procesar solo N filas (para pruebas rápidas)")
     args = parser.parse_args()
     main(dry_run=args.dry_run, sample=args.sample)
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# APÉNDICE: LEMATIZACIÓN CON SPACY (descomenta cuando tengas el modelo)
-# ═══════════════════════════════════════════════════════════════════════════════
-# Instalar una sola vez:
-#   pip install spacy
-#   python -m spacy download es_core_news_md
-#   python -m spacy download en_core_web_sm
-#
-# Reemplaza preprocesar_nlp() con esta versión:
-#
-# import spacy
-# NLP_ES = spacy.load("es_core_news_md", disable=["parser", "ner"])
-# NLP_EN = spacy.load("en_core_web_sm",  disable=["parser", "ner"])
-#
-# def preprocesar_nlp_spacy(texto: str, idioma: str) -> str:
-#     nlp = NLP_ES if idioma in ("es", "otro") else NLP_EN
-#     doc = nlp(texto)
-#     tokens = [
-#         token.lemma_.lower()
-#         for token in doc
-#         if not token.is_stop          # stopwords del modelo
-#         and not token.is_punct
-#         and not token.is_space
-#         and not token.like_num
-#         and len(token.lemma_) > 2
-#     ]
-#     return " ".join(tokens)
-#
-# Ventajas sobre stemming:
-#   "visitando" → "visitar"  (no "visit")
-#   "playas"    → "playa"    (no "play")
-#   "mejores"   → "bueno"    (reconoce forma comparativa)
-# ═══════════════════════════════════════════════════════════════════════════════
